@@ -17,12 +17,38 @@
 package ws.wamp.jawampa.internal;
 
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Random;
 
 /**
  * Contains method for generating WAMP IDs
  */
 public class IdGenerator {
+    
+    private static Random oldRandom;
+    
+    private static Class<?> threadLocalRandomClass;
+    
+    private static Random getRandomGenerator()
+    {
+        if (oldRandom == null && threadLocalRandomClass == null) {
+            try {
+                threadLocalRandomClass = ClassLoader.getSystemClassLoader().loadClass("java.util.concurrent.ThreadLocalRandom"); // Java 7+
+            }
+            catch (ClassNotFoundException e) {
+                // fall back to an old, Java 6, low performance Random().
+                oldRandom = new Random();
+            }
+        }
+        if (threadLocalRandomClass != null) {
+            try {
+                return (Random) threadLocalRandomClass.getMethod("current").invoke(null);
+            }
+            catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return oldRandom; 
+    }
     
     /**
      * Generates a new ID through a random generator.<br>
@@ -34,7 +60,7 @@ public class IdGenerator {
      */
     public static long newRandomId(Map<Long, ?> controlMap) {
         for (;;) {
-            long l = ThreadLocalRandom.current().nextLong();
+            long l = getRandomGenerator().nextLong();
             if (l < IdValidator.MIN_VALID_ID || l > IdValidator.MAX_VALID_ID) continue;
             if (controlMap == null || !controlMap.containsKey(l)) return l;
         }
