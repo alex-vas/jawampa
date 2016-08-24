@@ -50,39 +50,43 @@ public class ServerTest {
     
     public void start() {
         
-        WampRouterBuilder routerBuilder = new WampRouterBuilder();
+        URI serverUri = URI.create("ws://0.0.0.0:8080/ws1");
+        
         WampRouter router;
-        try {
-            routerBuilder.addRealm("realm1");
-            router = routerBuilder.build();
-        } catch (ApplicationError e1) {
-            e1.printStackTrace();
-            return;
+        SimpleWampWebsocketListener server;
+        {
+            WampRouterBuilder routerBuilder = new WampRouterBuilder();
+            try {
+                routerBuilder.addRealm("realm1");
+                router = routerBuilder.build();
+                
+                server = new SimpleWampWebsocketListener(router, serverUri, null);
+                server.start();
+                
+            } catch (ApplicationError e1) {
+                e1.printStackTrace();
+                return;
+            }
         }
         
-        URI serverUri = URI.create("ws://0.0.0.0:8080/ws1");
-        SimpleWampWebsocketListener server;
-
-        IWampConnectorProvider connectorProvider = new NettyWampClientConnectorProvider();
-        WampClientBuilder builder = new WampClientBuilder();
-
         // Build two clients
         final WampClient client1;
         final WampClient client2;
-        try {
-            server = new SimpleWampWebsocketListener(router, serverUri, null);
-            server.start();
-            
-            builder.withConnectorProvider(connectorProvider)
-                   .withUri("ws://localhost:8080/ws1")
-                   .withRealm("realm1")
-                   .withInfiniteReconnects()
-                   .withReconnectInterval(3, TimeUnit.SECONDS);
-            client1 = builder.build();
-            client2 = builder.build();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return;
+        {
+            IWampConnectorProvider connectorProvider = new NettyWampClientConnectorProvider();
+            WampClientBuilder builder = new WampClientBuilder();
+            try {
+                builder.withConnectorProvider(connectorProvider)
+                       .withUri("ws://localhost:8080/ws1")
+                       .withRealm("realm1")
+                       .withInfiniteReconnects()
+                       .withReconnectInterval(3, TimeUnit.SECONDS);
+                client1 = builder.build();
+                client2 = builder.build();
+            } catch (Exception e) {
+                e.printStackTrace();
+                return;
+            }
         }
 
         client1.statusChanged().subscribe(new Action1<WampClient.State>() {
