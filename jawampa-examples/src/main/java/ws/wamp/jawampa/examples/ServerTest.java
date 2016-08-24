@@ -52,6 +52,7 @@ public class ServerTest {
         
         URI serverUri = URI.create("ws://0.0.0.0:8080/ws1");
         
+        // Build router and server
         WampRouter router;
         SimpleWampWebsocketListener server;
         {
@@ -69,9 +70,8 @@ public class ServerTest {
             }
         }
         
-        // Build two clients
+        // Build socket client1
         final WampClient client1;
-        final WampClient client2;
         {
             IWampConnectorProvider connectorProvider = new NettyWampClientConnectorProvider();
             WampClientBuilder builder = new WampClientBuilder();
@@ -82,13 +82,16 @@ public class ServerTest {
                        .withInfiniteReconnects()
                        .withReconnectInterval(3, TimeUnit.SECONDS);
                 client1 = builder.build();
-                client2 = builder.build();
             } catch (Exception e) {
                 e.printStackTrace();
                 return;
             }
         }
 
+        // Build inner process client2
+        final WampClient client2 = router.createInnerProccessClient("realm1");
+        
+        // Setup client1
         client1.statusChanged().subscribe(new Action1<WampClient.State>() {
             @Override
             public void call(WampClient.State t1) {
@@ -130,6 +133,7 @@ public class ServerTest {
             }
         });
         
+        // Setup client2
         client2.statusChanged().subscribe(new Action1<WampClient.State>() {
             @Override
             public void call(WampClient.State t1) {
@@ -201,6 +205,7 @@ public class ServerTest {
             }
         });
 
+        // Open clients
         client1.open();
         client2.open();
         
@@ -213,10 +218,12 @@ public class ServerTest {
             }
         }, eventInterval, eventInterval, TimeUnit.MILLISECONDS);
         
+        // Wait for a key press and then shutdown
         waitUntilKeypressed();
         System.out.println("Stopping subscription");
-        if (eventSubscription != null)
+        if (eventSubscription != null) {
             eventSubscription.unsubscribe();
+        }
         
         waitUntilKeypressed();
         System.out.println("Stopping publication");

@@ -16,6 +16,7 @@
 
 package ws.wamp.jawampa;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -28,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 
 import rx.Observable;
@@ -37,11 +39,16 @@ import rx.subjects.AsyncSubject;
 import ws.wamp.jawampa.WampMessages.*;
 import ws.wamp.jawampa.connection.ICompletionCallback;
 import ws.wamp.jawampa.connection.IConnectionController;
+import ws.wamp.jawampa.connection.IPendingWampConnection;
+import ws.wamp.jawampa.connection.IPendingWampConnectionListener;
+import ws.wamp.jawampa.connection.IWampClientConnectionConfig;
 import ws.wamp.jawampa.connection.IWampConnection;
 import ws.wamp.jawampa.connection.IWampConnectionAcceptor;
 import ws.wamp.jawampa.connection.IWampConnectionFuture;
 import ws.wamp.jawampa.connection.IWampConnectionListener;
 import ws.wamp.jawampa.connection.IWampConnectionPromise;
+import ws.wamp.jawampa.connection.IWampConnector;
+import ws.wamp.jawampa.connection.IWampConnectorProvider;
 import ws.wamp.jawampa.connection.QueueingConnectionController;
 import ws.wamp.jawampa.connection.WampConnectionPromise;
 import ws.wamp.jawampa.internal.IdGenerator;
@@ -395,6 +402,112 @@ public class WampRouter {
      */
     public IWampConnectionAcceptor connectionAcceptor() {
         return connectionAcceptor;
+    }
+    
+    /**
+     * Creates connection to the router which is wired directly to the router bypassing any sockets.
+     * @param realm The name of the realm to which shall be connected.
+     *  @return The created WAMP client
+     */
+    public WampClient createInnerProccessClient(String realm) {
+        return createInnerProccessClient(realm, null, null);
+    }
+    
+    /**
+     * Creates connection to the router which is wired directly to the router bypassing any sockets.
+     * @param realm The name of the realm to which shall be connected.
+     * @param clientRoles The set of roles that the client should fulfil in the session.
+     * At least one role is required, otherwise the session can not be established.
+     * @param objectMapper The {@link ObjectMapper} instance
+     *  @return The created WAMP client
+     */
+    public WampClient createInnerProccessClient(String realm, WampRoles[] clientRoles, ObjectMapper objectMapper) {
+        final IWampConnectionListener[] connectionListenerClient1 = { null };
+
+        final IWampConnectionListener connectionListenerRouter1 = connectionAcceptor().createNewConnectionListener();
+        IWampConnection routerConnection = new IWampConnection() {
+            @Override
+            public WampSerialization serialization() {
+                throw new UnsupportedOperationException();
+            }
+            @Override
+            public void sendMessage(WampMessage message, IWampConnectionPromise<Void> promise) {
+                connectionListenerClient1[0].messageReceived(message);
+                promise.fulfill(null);
+            }
+            @Override
+            public boolean isSingleWriteOnly() {
+                return false;
+            }
+            @Override
+            public void close(boolean sendRemaining, IWampConnectionPromise<Void> promise) {
+                connectionListenerClient1[0].transportClosed();
+                promise.fulfill(null);
+            }
+        };
+        connectionAcceptor().acceptNewConnection(routerConnection, connectionListenerRouter1);
+
+        IWampConnectorProvider connectorProvider = new IWampConnectorProvider() {
+            @Override
+            public ScheduledExecutorService createScheduler() {
+                return new ScheduledThreadPoolExecutor(0);
+            }
+
+            @Override
+            public IWampConnector createConnector(URI uri, IWampClientConnectionConfig configuration,
+                    List<WampSerialization> serializations) throws Exception 
+            {
+                return new IWampConnector() {
+                    @Override
+                    public IPendingWampConnection connect(ScheduledExecutorService scheduler,
+                            IPendingWampConnectionListener connectListener,
+                            IWampConnectionListener connectionListener) 
+                    {
+                        connectionListenerClient1[0] = connectionListener;
+                        connectListener.connectSucceeded(new IWampConnection() {
+                            @Override
+                            public WampSerialization serialization() {
+                                throw new UnsupportedOperationException();
+                            }
+                            @Override
+                            public void sendMessage(WampMessage message, IWampConnectionPromise<Void> promise) {
+                                connectionListenerRouter1.messageReceived(message);
+                                promise.fulfill(null);
+                            }
+                            @Override
+                            public boolean isSingleWriteOnly() {
+                                return false;
+                            }
+                            @Override
+                            public void close(boolean sendRemaining, IWampConnectionPromise<Void> promise) {
+                                connectionListenerRouter1.transportClosed();
+                                promise.fulfill(null);
+                            }
+                        });
+                        return new IPendingWampConnection() {
+                            @Override
+                            public void cancelConnect() {
+                                // nothing
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        WampClientBuilder builder = new WampClientBuilder().withConnectorProvider(connectorProvider)
+                .withUri("inner-process://example.com").withRealm(realm);
+        if (clientRoles != null) {
+            builder.withRoles(clientRoles);
+        }
+        if (objectMapper != null) {
+            builder.withObjectMapper(objectMapper);
+        }
+        try {
+            return builder.build();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
     
     class ClientHandler implements IWampConnectionListener {
