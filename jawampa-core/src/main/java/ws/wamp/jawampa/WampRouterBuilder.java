@@ -34,6 +34,8 @@ public class WampRouterBuilder {
     
     Map<String, RealmConfig> realms = new HashMap<String, RealmConfig>();
 
+    boolean metaApiEnabled;
+    
     public WampRouterBuilder() {
         
     }
@@ -47,7 +49,7 @@ public class WampRouterBuilder {
         if (realms.size() == 0)
             throw new ApplicationError(ApplicationError.INVALID_REALM);
         
-        return new WampRouter(realms);
+        return new WampRouter(realms, metaApiEnabled);
     }
     
     /**
@@ -95,6 +97,12 @@ public class WampRouterBuilder {
         // Insert the new realm configuration
         this.realms.put(realmName, realmConfig);
         
+        return this;
+    }
+    
+    public WampRouterBuilder withMetaApiEnabled()
+    {
+        metaApiEnabled = true;
         return this;
     }
 }

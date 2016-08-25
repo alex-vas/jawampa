@@ -29,7 +29,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 
 import rx.Observable;
@@ -79,6 +78,7 @@ public class WampRouter {
     /** Represents a realm that is exposed through the router */
     static class Realm {
         final RealmConfig config;
+        final WampClient metaApiClient;
         final ObjectNode welcomeDetails;
         final Map<Long, ClientHandler> channelsBySessionId = new HashMap<Long, ClientHandler>();
         final Map<String, Procedure> procedures = new HashMap<String, Procedure>();
@@ -89,8 +89,10 @@ public class WampRouter {
         final Map<Long, Subscription> subscriptionsById = new HashMap<Long, Subscription>();
         long lastUsedSubscriptionId = IdValidator.MIN_VALID_ID;
         
-        public Realm(RealmConfig config) {
+        public Realm(RealmConfig config, WampClient metaApiClient) {
             this.config = config;
+            this.metaApiClient = metaApiClient;
+            metaApiClient.open();
             subscriptionsByFlags.put(SubscriptionFlags.Exact, new HashMap<String, Subscription>());
             subscriptionsByFlags.put(SubscriptionFlags.Prefix, new HashMap<String, Subscription>());
             subscriptionsByFlags.put(SubscriptionFlags.Wildcard, new HashMap<String, Subscription>());
@@ -232,14 +234,7 @@ public class WampRouter {
         return objectMapper;
     }
 
-    WampRouter(Map<String, RealmConfig> realms) {
-        
-        // Populate the realms from the configuration
-        this.realms = new HashMap<String, Realm>();
-        for (Map.Entry<String, RealmConfig> e : realms.entrySet()) {
-            Realm info = new Realm(e.getValue());
-            this.realms.put(e.getKey(), info);
-        }
+    WampRouter(Map<String, RealmConfig> realms, boolean metaApiEnabled) {
         
         // Create an eventloop and the RX scheduler on top of it
         this.eventLoop = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
@@ -253,6 +248,13 @@ public class WampRouter {
         this.scheduler = Schedulers.from(eventLoop);
 
         idleChannels = new HashSet<IConnectionController>();
+        
+        // Populate the realms from the configuration
+        this.realms = new HashMap<String, Realm>();
+        for (Map.Entry<String, RealmConfig> e : realms.entrySet()) {
+            Realm info = new Realm(e.getValue(), metaApiEnabled ? createInnerProcessClient(e.getKey()) : null);
+            this.realms.put(e.getKey(), info);
+        }
     }
     
     /**
@@ -409,8 +411,8 @@ public class WampRouter {
      * @param realm The name of the realm to which shall be connected.
      *  @return The created WAMP client
      */
-    public WampClient createInnerProccessClient(String realm) {
-        return createInnerProccessClient(realm, null, null);
+    public WampClient createInnerProcessClient(String realm) {
+        return createInnerProcessClient(realm, null, null);
     }
     
     /**
@@ -421,10 +423,10 @@ public class WampRouter {
      * @param objectMapper The {@link ObjectMapper} instance
      *  @return The created WAMP client
      */
-    public WampClient createInnerProccessClient(String realm, WampRoles[] clientRoles, ObjectMapper objectMapper) {
-        final IWampConnectionListener[] connectionListenerClient1 = { null };
+    public WampClient createInnerProcessClient(String realm, WampRoles[] clientRoles, ObjectMapper objectMapper) {
+        final IWampConnectionListener[] connectionListenerClient = { null };
 
-        final IWampConnectionListener connectionListenerRouter1 = connectionAcceptor().createNewConnectionListener();
+        final IWampConnectionListener connectionListenerRouter = connectionAcceptor().createNewConnectionListener();
         IWampConnection routerConnection = new IWampConnection() {
             @Override
             public WampSerialization serialization() {
@@ -432,7 +434,7 @@ public class WampRouter {
             }
             @Override
             public void sendMessage(WampMessage message, IWampConnectionPromise<Void> promise) {
-                connectionListenerClient1[0].messageReceived(message);
+                connectionListenerClient[0].messageReceived(message);
                 promise.fulfill(null);
             }
             @Override
@@ -441,16 +443,23 @@ public class WampRouter {
             }
             @Override
             public void close(boolean sendRemaining, IWampConnectionPromise<Void> promise) {
-                connectionListenerClient1[0].transportClosed();
+                connectionListenerClient[0].transportClosed();
                 promise.fulfill(null);
             }
         };
-        connectionAcceptor().acceptNewConnection(routerConnection, connectionListenerRouter1);
+        connectionAcceptor().acceptNewConnection(routerConnection, connectionListenerRouter);
 
         IWampConnectorProvider connectorProvider = new IWampConnectorProvider() {
             @Override
             public ScheduledExecutorService createScheduler() {
-                return new ScheduledThreadPoolExecutor(0);
+                return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "WampInnerProccessClient");
+                        t.setDaemon(true);
+                        return t;
+                    }
+                });
             }
 
             @Override
@@ -463,7 +472,7 @@ public class WampRouter {
                             IPendingWampConnectionListener connectListener,
                             IWampConnectionListener connectionListener) 
                     {
-                        connectionListenerClient1[0] = connectionListener;
+                        connectionListenerClient[0] = connectionListener;
                         connectListener.connectSucceeded(new IWampConnection() {
                             @Override
                             public WampSerialization serialization() {
@@ -471,7 +480,7 @@ public class WampRouter {
                             }
                             @Override
                             public void sendMessage(WampMessage message, IWampConnectionPromise<Void> promise) {
-                                connectionListenerRouter1.messageReceived(message);
+                                connectionListenerRouter.messageReceived(message);
                                 promise.fulfill(null);
                             }
                             @Override
@@ -480,7 +489,7 @@ public class WampRouter {
                             }
                             @Override
                             public void close(boolean sendRemaining, IWampConnectionPromise<Void> promise) {
-                                connectionListenerRouter1.transportClosed();
+                                connectionListenerRouter.transportClosed();
                                 promise.fulfill(null);
                             }
                         });
@@ -575,6 +584,9 @@ public class WampRouter {
             closeActiveClient(handler, new GoodbyeMessage(null, ApplicationError.INVALID_ARGUMENT));
         } else if (msg instanceof AbortMessage || msg instanceof GoodbyeMessage) {
             // The client wants to leave the realm
+            if (handler.realm.metaApiClient != null) {
+                handler.realm.metaApiClient.publish("wamp.session.on_leave", objectMapper.createArrayNode().add(handler.sessionId), null);
+            }
             // Remove the channel from the realm
             handler.realm.removeChannel(handler, true);
             // But add it to the list of passive channels
@@ -1055,10 +1067,19 @@ public class WampRouter {
         // Respond with the WELCOME message
         WelcomeMessage welcome = new WelcomeMessage(channelHandler.sessionId, realm.welcomeDetails);
         channelHandler.controller.sendMessage(welcome, IWampConnectionPromise.Empty);
+        
+        if (realm.metaApiClient != null) {
+            // TODO Add authid, authrole, authmethod, authprovider, and optionally transport arguments as per the spec.
+            realm.metaApiClient.publish("wamp.session.on_join", objectMapper.createObjectNode().put("session", sessionId), null);
+        }
     }
     
     private void closeActiveClient(ClientHandler channel, WampMessage closeMessage) {
         if (channel == null) return;
+        
+        if (channel.realm.metaApiClient != null) {
+            channel.realm.metaApiClient.publish("wamp.session.on_leave", objectMapper.createArrayNode().add(channel.sessionId), null);
+        }
         
         channel.realm.removeChannel(channel, true);
         channel.markAsClosed();
