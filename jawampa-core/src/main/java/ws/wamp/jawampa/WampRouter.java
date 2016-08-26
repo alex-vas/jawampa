@@ -192,13 +192,15 @@ public class WampRouter {
     static class Subscription {
         final String topic;
         final SubscriptionFlags flags;
+        final boolean disclosePublisher;
         final String components[]; // non-null only for wildcard type
         final long subscriptionId;
         final Set<ClientHandler> subscribers;
         
-        public Subscription(String topic, SubscriptionFlags flags, long subscriptionId) {
+        public Subscription(String topic, SubscriptionFlags flags, boolean disclosePublisher, long subscriptionId) {
             this.topic = topic;
             this.flags = flags;
+            this.disclosePublisher = disclosePublisher;
             this.components = flags == SubscriptionFlags.Wildcard ? topic.split("\\.", -1) : null;
             this.subscriptionId = subscriptionId;
             this.subscribers = new HashSet<ClientHandler>();
@@ -215,6 +217,9 @@ public class WampRouter {
     
     final Map<String, Realm> realms;
     final Set<IConnectionController> idleChannels;
+    
+    final boolean discloseCallerEnabled;
+    final boolean disclosePublisherEnabled;
     
     /** The number of connections that have to be closed. This is important for shutdown */
     int connectionsToClose = 0;
@@ -236,7 +241,11 @@ public class WampRouter {
         return objectMapper;
     }
 
-    WampRouter(Map<String, RealmConfig> realms, boolean metaApiEnabled) {
+    WampRouter(Map<String, RealmConfig> realms, boolean metaApiEnabled, 
+            boolean discloseCallerEnabled, boolean disclosePublisherEnabled) 
+    {
+        this.discloseCallerEnabled = discloseCallerEnabled;
+        this.disclosePublisherEnabled = disclosePublisherEnabled;
         
         // Create an eventloop and the RX scheduler on top of it
         this.eventLoop = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
@@ -717,7 +726,7 @@ public class WampRouter {
             // Everything checked, we can register the caller as the procedure provider
             long registrationId = IdGenerator.newLinearId(handler.lastUsedId, handler.providedProcedures);
             handler.lastUsedId = registrationId;
-            JsonNode discloseCallerNode = reg.options.get("disclose_caller");
+            JsonNode discloseCallerNode = discloseCallerEnabled ? reg.options.get("disclose_caller") : null;
             Procedure procInfo = new Procedure(reg.procedure, discloseCallerNode != null && discloseCallerNode.asBoolean(), handler, registrationId);
             
             // Insert new procedure
@@ -848,7 +857,8 @@ public class WampRouter {
                                                               handler.realm.subscriptionsById);
                 handler.realm.lastUsedSubscriptionId = subscriptionId;
                 // Create and add the new subscription
-                subscription = new Subscription(sub.topic, flags, subscriptionId);
+                JsonNode disclosePublisherNode = disclosePublisherEnabled ? sub.options.get("disclose_publisher") : null;
+                subscription = new Subscription(sub.topic, flags, disclosePublisherNode != null && disclosePublisherNode.asBoolean(), subscriptionId);
                 subscriptionMap.put(sub.topic, subscription);
                 handler.realm.subscriptionsById.put(subscriptionId, subscription);
             }
@@ -992,7 +1002,10 @@ public class WampRouter {
             details = objectMapper.createObjectNode();
             details.put("topic", pub.topic);
         }
-
+        if (disclosePublisherEnabled && subscription.disclosePublisher) {
+            details.put("publisher", publisher.sessionId);
+        }
+        
         EventMessage ev = new EventMessage(subscription.subscriptionId, publicationId,
                 details, pub.arguments, pub.argumentsKw);
 

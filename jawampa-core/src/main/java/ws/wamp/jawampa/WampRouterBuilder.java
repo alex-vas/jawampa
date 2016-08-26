@@ -36,6 +36,9 @@ public class WampRouterBuilder {
 
     boolean metaApiEnabled;
     
+    boolean discloseCaller; 
+    boolean disclosePublisher;
+    
     public WampRouterBuilder() {
         
     }
@@ -49,7 +52,7 @@ public class WampRouterBuilder {
         if (realms.size() == 0)
             throw new ApplicationError(ApplicationError.INVALID_REALM);
         
-        return new WampRouter(realms, metaApiEnabled);
+        return new WampRouter(realms, metaApiEnabled, discloseCaller, disclosePublisher);
     }
     
     /**
@@ -105,4 +108,17 @@ public class WampRouterBuilder {
         metaApiEnabled = true;
         return this;
     }
+    
+    public WampRouterBuilder withDiscloseCaller()
+    {
+        metaApiEnabled = true;
+        return this;
+    }
+
+    public WampRouterBuilder withDisclosePublisher()
+    {
+        metaApiEnabled = true;
+        return this;
+    }
+    
 }
