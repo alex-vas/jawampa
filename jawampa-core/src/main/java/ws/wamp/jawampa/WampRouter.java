@@ -169,12 +169,14 @@ public class WampRouter {
     
     static class Procedure {
         final String procName;
+        final boolean discloseCaller;
         final ClientHandler provider;
         final long registrationId;
         final List<Invocation> pendingCalls = new ArrayList<WampRouter.Invocation>();
         
-        public Procedure(String name, ClientHandler provider, long registrationId) {
+        public Procedure(String name, boolean discloseCaller, ClientHandler provider, long registrationId) {
             this.procName = name;
+            this.discloseCaller = discloseCaller;
             this.provider = provider;
             this.registrationId = registrationId;
         }
@@ -639,8 +641,9 @@ public class WampRouter {
             proc.pendingCalls.add(invoc);
 
             // And send it to the provider
+            ObjectNode details = invoc.procedure.discloseCaller ? objectMapper.createObjectNode().put("caller", handler.sessionId) : null;
             InvocationMessage imsg = new InvocationMessage(invoc.invocationRequestId,
-                proc.registrationId, null, call.arguments, call.argumentsKw);
+                proc.registrationId, details, call.arguments, call.argumentsKw);
             proc.provider.controller.sendMessage(imsg, IWampConnectionPromise.Empty);
         } else if (msg instanceof YieldMessage) {
             // The clients sends as the result of an RPC
@@ -714,7 +717,8 @@ public class WampRouter {
             // Everything checked, we can register the caller as the procedure provider
             long registrationId = IdGenerator.newLinearId(handler.lastUsedId, handler.providedProcedures);
             handler.lastUsedId = registrationId;
-            Procedure procInfo = new Procedure(reg.procedure, handler, registrationId);
+            JsonNode discloseCallerNode = reg.options.get("disclose_caller");
+            Procedure procInfo = new Procedure(reg.procedure, discloseCallerNode != null && discloseCallerNode.asBoolean(), handler, registrationId);
             
             // Insert new procedure
             handler.realm.procedures.put(reg.procedure, procInfo);
