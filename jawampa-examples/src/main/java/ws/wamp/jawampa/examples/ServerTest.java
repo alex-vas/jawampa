@@ -89,7 +89,7 @@ public class ServerTest {
         }
 
         // Build inner process client2
-        final WampClient client2 = router.createInnerProcessClient("realm1");
+        final WampClient client2 = router.createInProcessClient("realm1");
         
         // Setup client1
         client1.statusChanged().subscribe(new Action1<WampClient.State>() {

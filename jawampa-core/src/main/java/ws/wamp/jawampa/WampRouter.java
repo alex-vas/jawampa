@@ -263,7 +263,7 @@ public class WampRouter {
         // Populate the realms from the configuration
         this.realms = new HashMap<String, Realm>();
         for (Map.Entry<String, RealmConfig> e : realms.entrySet()) {
-            Realm info = new Realm(e.getValue(), metaApiEnabled ? createInnerProcessClient(e.getKey()) : null);
+            Realm info = new Realm(e.getValue(), metaApiEnabled ? createInProcessClient(e.getKey()) : null);
             this.realms.put(e.getKey(), info);
         }
     }
@@ -422,23 +422,23 @@ public class WampRouter {
     }
     
     /**
-     * Creates connection to the router which is wired directly to the router bypassing any sockets.
+     * Creates connection to the router which is wired directly to the router and bypassing any sockets.
      * @param realm The name of the realm to which shall be connected.
      *  @return The created WAMP client
      */
-    public WampClient createInnerProcessClient(String realm) {
-        return createInnerProcessClient(realm, null, null);
+    public WampClient createInProcessClient(String realm) {
+        return createInProcessClient(realm, null, null);
     }
     
     /**
-     * Creates connection to the router which is wired directly to the router bypassing any sockets.
+     * Creates connection to the router which is wired directly to the router and bypassing any sockets.
      * @param realm The name of the realm to which shall be connected.
      * @param clientRoles The set of roles that the client should fulfil in the session.
      * At least one role is required, otherwise the session can not be established.
      * @param objectMapper The {@link ObjectMapper} instance
      *  @return The created WAMP client
      */
-    public WampClient createInnerProcessClient(String realm, WampRoles[] clientRoles, ObjectMapper objectMapper) {
+    public WampClient createInProcessClient(String realm, WampRoles[] clientRoles, ObjectMapper objectMapper) {
         final IWampConnectionListener[] connectionListenerClient = { null };
 
         final IWampConnectionListener connectionListenerRouter = connectionAcceptor().createNewConnectionListener();
