@@ -467,16 +467,8 @@ public class WampRouter {
         IWampConnectorProvider connectorProvider = new IWampConnectorProvider() {
             @Override
             public ScheduledExecutorService createScheduler() {
-                return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        Thread t = new Thread(r, "WampInnerProccessClient");
-                        t.setDaemon(true);
-                        return t;
-                    }
-                });
+                return eventLoop;
             }
-
             @Override
             public IWampConnector createConnector(URI uri, IWampClientConnectionConfig configuration,
                     List<WampSerialization> serializations) throws Exception 
