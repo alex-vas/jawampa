@@ -332,6 +332,10 @@ public class WampRouter {
                 idleChannels.clear();
                 
                 for (Realm ri : realms.values()) {
+                    if (ri.metaApiClient != null)
+                    {
+                        ri.metaApiClient.close();
+                    }
                     for (ClientHandler channel : ri.channelsBySessionId.values()) {
                         ri.removeChannel(channel, false);
                         channel.markAsClosed();
