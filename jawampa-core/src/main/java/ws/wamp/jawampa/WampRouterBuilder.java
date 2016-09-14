@@ -111,13 +111,13 @@ public class WampRouterBuilder {
     
     public WampRouterBuilder withDiscloseCaller()
     {
-        metaApiEnabled = true;
+        discloseCaller = true;
         return this;
     }
 
     public WampRouterBuilder withDisclosePublisher()
     {
-        metaApiEnabled = true;
+        disclosePublisher = true;
         return this;
     }
     
