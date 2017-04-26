@@ -38,7 +38,6 @@ import io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.ReferenceCountUtil;
-import io.netty.util.internal.StringUtil;
 import ws.wamp.jawampa.WampSerialization;
 import ws.wamp.jawampa.WampMessages.WampMessage;
 import ws.wamp.jawampa.connection.IWampConnection;
@@ -109,7 +108,7 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
         if (connectionHeaderValue == null) {
             return false;
         }
-        String[] connectionHeaderFields = StringUtil.split(connectionHeaderValue.toLowerCase(), ',');
+        String[] connectionHeaderFields = connectionHeaderValue.toLowerCase().split(",");
         boolean hasUpgradeField = false;
         for (String s : connectionHeaderFields) {
             if (s.trim().equals(HttpHeaders.Values.UPGRADE.toLowerCase())) {
