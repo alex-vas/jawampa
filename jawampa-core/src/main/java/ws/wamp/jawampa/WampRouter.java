@@ -96,7 +96,9 @@ public class WampRouter {
             this.metaApiClient = metaApiClient;
             this.discloseCallerEnabled = discloseCallerEnabled;
             this.disclosePublisherEnabled = disclosePublisherEnabled;
-            metaApiClient.open();
+            if (metaApiClient != null) {
+                metaApiClient.open();
+            }
             subscriptionsByFlags.put(SubscriptionFlags.Exact, new HashMap<String, Subscription>());
             subscriptionsByFlags.put(SubscriptionFlags.Prefix, new HashMap<String, Subscription>());
             subscriptionsByFlags.put(SubscriptionFlags.Wildcard, new HashMap<String, Subscription>());
