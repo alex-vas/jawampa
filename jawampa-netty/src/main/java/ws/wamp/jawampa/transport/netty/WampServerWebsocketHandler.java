@@ -18,6 +18,7 @@ package ws.wamp.jawampa.transport.netty;
 
 import ws.wamp.jawampa.WampRouter;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
@@ -37,6 +38,9 @@ import io.netty.handler.codec.http.websocketx.WebSocketHandshakeException;
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.ReferenceCountUtil;
 import ws.wamp.jawampa.WampSerialization;
 import ws.wamp.jawampa.WampMessages.WampMessage;
@@ -60,6 +64,9 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
     final IWampConnectionAcceptor connectionAcceptor;
     final List<WampSerialization> supportedSerializations;
     
+    final int pingPeriodSeconds;
+    final int pingTimeoutSeconds;
+    
     WampSerialization serialization = WampSerialization.Invalid;
     boolean handshakeInProgress = false;
 
@@ -68,11 +75,18 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
     }
 
     public WampServerWebsocketHandler(String websocketPath, WampRouter router,
-                                      List<WampSerialization> supportedSerializations) {
+            List<WampSerialization> supportedSerializations) {
+        this(websocketPath, router, supportedSerializations, 0, 0);
+    }
+    
+    public WampServerWebsocketHandler(String websocketPath, WampRouter router,
+                                      List<WampSerialization> supportedSerializations, int pingPeriodSeconds, int pingTimeoutSeconds) {
         this.websocketPath = websocketPath;
         this.router = router;
         this.connectionAcceptor = router.connectionAcceptor();
         this.supportedSerializations = supportedSerializations;
+        this.pingPeriodSeconds = pingPeriodSeconds;
+        this.pingTimeoutSeconds = pingTimeoutSeconds;
     }
     
     @Override
@@ -223,12 +237,37 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
             if (last == null) {
                 throw new IllegalStateException("Can't find the WAMP server handler in the pipeline");
             }
+
+            boolean keepAlive = pingPeriodSeconds > 0 && pingTimeoutSeconds > 0; 
+            if (keepAlive) {
+                ctx.pipeline().addLast("keep-alive-idle-state-handler", new IdleStateHandler(pingPeriodSeconds + pingTimeoutSeconds /*reader timeout*/, pingPeriodSeconds /*writer timeout*/, 0));
+            }
             
             // Remove the WampServerWebSocketHandler and replace it with the protocol handler
             // which processes pings and closes
             ProtocolHandler protocolHandler = new ProtocolHandler();
             ctx.pipeline().replace(this, "wamp-websocket-protocol-handler", protocolHandler);
             final ChannelHandlerContext protocolHandlerCtx = ctx.pipeline().context(protocolHandler);
+            
+            if (keepAlive) {
+                ctx.pipeline().addLast("keep-alive-action-handler", new ChannelDuplexHandler() {
+                    @Override
+                    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                        if (evt instanceof IdleStateEvent) {
+                            IdleStateEvent e = (IdleStateEvent) evt;
+                            if (e.state() == IdleState.READER_IDLE) {
+                                ctx.close();
+                            } else if (e.state() == IdleState.WRITER_IDLE) {
+                                ctx.writeAndFlush(new PingWebSocketFrame());
+                            }
+                        }
+                        else
+                        {
+                            ctx.fireUserEventTriggered(evt);
+                        }
+                    }
+                });
+            }
             
             // Handle websocket fragmentation before the deserializer
             protocolHandlerCtx.pipeline().addLast(new WebSocketFrameAggregator(WampHandlerConfiguration.MAX_WEBSOCKET_FRAME_SIZE));
