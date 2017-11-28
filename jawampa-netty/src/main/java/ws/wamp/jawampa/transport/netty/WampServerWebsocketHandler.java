@@ -410,7 +410,7 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
             if (msg instanceof PingWebSocketFrame) {
                 // Respond to Pings with Pongs
                 try {
-                    ctx.writeAndFlush(new PongWebSocketFrame());
+                    ctx.writeAndFlush(new PongWebSocketFrame(((PingWebSocketFrame) msg).content()));
                 } finally {
                     ((PingWebSocketFrame) msg).release();
                 }
