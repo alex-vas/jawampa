@@ -7,12 +7,17 @@ public class NettyWampConnectionConfig implements IWampClientConnectionConfig {
 
     static final int DEFAULT_MAX_FRAME_PAYLOAD_LENGTH = 65535;
 
-    SslContext sslContext;
-    int maxFramePayloadLength;
+    final SslContext sslContext;
+    final int maxFramePayloadLength;
 
-    NettyWampConnectionConfig(SslContext sslContext, int maxFramePayloadLength) {
+    final int pingPeriodSeconds;
+    final int pingTimeoutSeconds;
+    
+    NettyWampConnectionConfig(SslContext sslContext, int maxFramePayloadLength, int pingPeriodSeconds, int pingTimeoutSeconds) {
         this.sslContext = sslContext;
         this.maxFramePayloadLength = maxFramePayloadLength;
+        this.pingPeriodSeconds = pingPeriodSeconds;  
+        this.pingTimeoutSeconds = pingTimeoutSeconds;
     }
 
     /**
@@ -28,6 +33,14 @@ public class NettyWampConnectionConfig implements IWampClientConnectionConfig {
         return maxFramePayloadLength;
     }
 
+    public int getPingPeriodSeconds() {
+        return pingPeriodSeconds;
+    }
+    
+    public int getPingTimeoutSeconds() {
+        return pingTimeoutSeconds;
+    }
+    
     /**
      * Builder class that must be used to create a {@link NettyWampConnectionConfig}
      * instance.
@@ -36,7 +49,9 @@ public class NettyWampConnectionConfig implements IWampClientConnectionConfig {
 
         SslContext sslContext;
         int maxFramePayloadLength = DEFAULT_MAX_FRAME_PAYLOAD_LENGTH;
-
+        int pingPeriodSeconds;
+        int pingTimeoutSeconds;
+        
         /**
          * Allows to set the SslContext which will be used to create Ssl connections to the WAMP
          * router. If this is set to null a default (unsecure) SSL client context will be created
@@ -57,8 +72,20 @@ public class NettyWampConnectionConfig implements IWampClientConnectionConfig {
             return this;
         }
 
+        public Builder withKeepAlive(int pingPeriodSeconds, int pingTimeoutSeconds) {
+            if (pingPeriodSeconds <= 0) {
+                throw new IllegalArgumentException("pingPeriodSeconds parameter cannot be negative");
+            }
+            if (pingTimeoutSeconds <= 0) {
+                throw new IllegalArgumentException("pingTimeoutSeconds parameter cannot be negative");
+            }
+            this.pingPeriodSeconds = pingPeriodSeconds;  
+            this.pingTimeoutSeconds = pingTimeoutSeconds;
+            return this;
+        }
+
         public NettyWampConnectionConfig build() {
-            return new NettyWampConnectionConfig(sslContext, maxFramePayloadLength);
+            return new NettyWampConnectionConfig(sslContext, maxFramePayloadLength, pingPeriodSeconds, pingTimeoutSeconds);
         }
     }
 }

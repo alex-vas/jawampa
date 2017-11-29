@@ -36,6 +36,7 @@ import ws.wamp.jawampa.connection.IWampConnectorProvider;
 import ws.wamp.jawampa.WampSerialization;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
@@ -50,6 +51,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.HttpClientCodec;
 import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketClientProtocolHandler;
@@ -57,6 +59,9 @@ import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 
 /**
  * Returns factory methods for the establishment of WAMP connections between
@@ -268,13 +273,45 @@ public class NettyWampClientConnectorProvider implements IWampConnectorProvider 
                                                          uri.getHost(),
                                                          port));
                         }
-                        p.addLast(
-                            new HttpClientCodec(),
-                            new HttpObjectAggregator(8192),
-                            new WebSocketClientProtocolHandler(handshaker, false),
-                            new WebSocketFrameAggregator(WampHandlerConfiguration.MAX_WEBSOCKET_FRAME_SIZE),
-                            new WampClientWebsocketHandler(handshaker),
-                            connectionHandler);
+                        
+                        p.addLast(new HttpClientCodec());
+                        p.addLast(new HttpObjectAggregator(8192));
+                        
+                        boolean keepAlive = nettyConfig.getPingPeriodSeconds() > 0 && nettyConfig.getPingTimeoutSeconds() > 0; 
+                        if (keepAlive)
+                        {
+                            p.addLast("keep-alive-idle-state-handler", new IdleStateHandler(
+                                    nettyConfig.getPingPeriodSeconds() + nettyConfig.getPingTimeoutSeconds() /*reader timeout*/, 
+                                    nettyConfig.getPingPeriodSeconds() /*writer timeout*/, 
+                                    0));
+                        }
+                        
+                        p.addLast(new WebSocketClientProtocolHandler(handshaker, false));
+                        
+                        if (keepAlive)
+                        {
+                            p.addLast("keep-alive-action-handler", new ChannelDuplexHandler() {
+                                @Override
+                                public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                                    if (evt instanceof IdleStateEvent) {
+                                        IdleStateEvent e = (IdleStateEvent) evt;
+                                        if (e.state() == IdleState.READER_IDLE) {
+                                            ctx.close();
+                                        } else if (e.state() == IdleState.WRITER_IDLE) {
+                                            ctx.writeAndFlush(new PingWebSocketFrame());
+                                        }
+                                    }
+                                    else
+                                    {
+                                        ctx.fireUserEventTriggered(evt);
+                                    }
+                                }
+                            });
+                        }
+                        
+                        p.addLast(new WebSocketFrameAggregator(WampHandlerConfiguration.MAX_WEBSOCKET_FRAME_SIZE));
+                        p.addLast(new WampClientWebsocketHandler(handshaker));
+                        p.addLast(connectionHandler);
                         }
                     });
                     
