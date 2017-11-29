@@ -17,6 +17,7 @@
 package ws.wamp.jawampa.transport.netty;
 
 import ws.wamp.jawampa.WampRouter;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
@@ -410,7 +411,8 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
             if (msg instanceof PingWebSocketFrame) {
                 // Respond to Pings with Pongs
                 try {
-                    ctx.writeAndFlush(new PongWebSocketFrame(((PingWebSocketFrame) msg).content()));
+                    ByteBuf content = ((PingWebSocketFrame) msg).content().copy();
+                    ctx.writeAndFlush(new PongWebSocketFrame(content));
                 } finally {
                     ((PingWebSocketFrame) msg).release();
                 }
