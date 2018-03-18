@@ -252,18 +252,29 @@ public class WampServerWebsocketHandler extends ChannelInboundHandlerAdapter {
             
             if (keepAlive) {
                 ctx.pipeline().addLast("keep-alive-action-handler", new ChannelDuplexHandler() {
+                    private boolean pingTried;
+                    @Override
+                    public void read(ChannelHandlerContext ctx) throws Exception {
+                        if (pingTried) {
+                            pingTried = false;
+                        }
+                        super.read(ctx);
+                    }
                     @Override
                     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
                         if (evt instanceof IdleStateEvent) {
                             IdleStateEvent e = (IdleStateEvent) evt;
-                            if (e.state() == IdleState.READER_IDLE) {
-                                ctx.close();
-                            } else if (e.state() == IdleState.WRITER_IDLE) {
+                            if (e.state() == IdleState.WRITER_IDLE) {
                                 ctx.writeAndFlush(new PingWebSocketFrame());
+                            } else if (e.state() == IdleState.READER_IDLE) {
+                                if (!pingTried) {
+                                    ctx.writeAndFlush(new PingWebSocketFrame());
+                                    pingTried = true;
+                                } else {
+                                    ctx.close();
+                                }
                             }
-                        }
-                        else
-                        {
+                        } else {
                             ctx.fireUserEventTriggered(evt);
                         }
                     }
